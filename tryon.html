@@ -113,9 +113,11 @@ const CFG = {
   RING_T: 0.45,        // position along proximal phalanx (0=knuckle,1=joint)
   RING_RADIUS_K: 0.30, // ring size relative to phalanx length (procedural fallback)
   RING_TUBE: 0.16,     // band thickness (relative to ring radius)
-  MODEL_OUTER_K: 0.66, // real-model outer diameter relative to phalanx length
+  MODEL_OUTER_K: 0.60, // real-model outer diameter relative to phalanx length
   MODEL_ROLL: 0,       // spin (radians) around finger axis to bring the gem on top
-  OCC_RING_K: 0.24,    // finger radius (occluder) relative to phalanx length
+  MODEL_RX: 0, MODEL_RY: 0, MODEL_RZ: 0, // extra model pre-rotation (degrees) if mis-aligned
+  OCC_RING_K: 0.27,    // finger radius (occluder) relative to phalanx length
+  SMOOTH: 0.30,        // tracking smoothing (lower = smoother but laggier)
   WATCH_RADIUS_K: 0.62,// watch size relative to hand breadth
   Z_SENS: 0.55,        // how strongly depth affects tilt (lower=flatter)
 };
@@ -268,11 +270,15 @@ function v3(lm){
 function pxDist(a,b){ const p=v3(a),q=v3(b); return Math.hypot(p.x-q.x,p.y-q.y); }
 const ZAX=new THREE.Vector3(0,0,1), CAM=new THREE.Vector3(0,0,1);
 
+let smB=null, smD=null, smP=0, smOn=false;
 function placeRing(lm){
-  const mcp=v3(lm[13]), pip=v3(lm[14]);
-  const base=mcp.clone().lerp(pip,CFG.RING_T);
-  const dir=pip.clone().sub(mcp).normalize();
-  const phalanx=pxDist(lm[13],lm[14]);
+  // smooth the raw tracking to kill jitter
+  const baseT=v3(lm[13]).lerp(v3(lm[14]),CFG.RING_T);
+  const dirT=v3(lm[14]).sub(v3(lm[13])).normalize();
+  const phT=pxDist(lm[13],lm[14]);
+  if(!smOn){ smB=baseT.clone(); smD=dirT.clone(); smP=phT; smOn=true; }
+  else { smB.lerp(baseT,CFG.SMOOTH); smD.lerp(dirT,CFG.SMOOTH).normalize(); smP+=(phT-smP)*CFG.SMOOTH; }
+  const base=smB, dir=smD, phalanx=smP;
   // finger occluder: a cylinder down the whole ring finger (knuckle → tip)
   const fa=v3(lm[13]).sub(dir.clone().multiplyScalar(phalanx*0.2));
   const ftip=v3(lm[16]);
@@ -292,6 +298,8 @@ function placeRing(lm){
     const x=new THREE.Vector3().crossVectors(up,dir).normalize();
     const y=new THREE.Vector3().crossVectors(dir,x).normalize();
     const q=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x,y,dir));
+    const d2r=THREE.MathUtils.degToRad;
+    q.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(d2r(CFG.MODEL_RX),d2r(CFG.MODEL_RY),d2r(CFG.MODEL_RZ))));
     if(CFG.MODEL_ROLL) q.multiply(new THREE.Quaternion().setFromAxisAngle(ZAX, CFG.MODEL_ROLL));
     ringGroup.quaternion.copy(q); ringGroup.visible=true;
     return;
@@ -341,7 +349,7 @@ function loop(now){
     hideAll();
     if(mode==='ring') placeRing(lm); else placeWatch(lm);
     promptEl.classList.add('hidden');
-  } else { hideAll(); promptEl.classList.remove('hidden'); }
+  } else { hideAll(); smOn=false; promptEl.classList.remove('hidden'); }
   renderer.render(scene,camera);
 }
 
