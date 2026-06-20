@@ -116,9 +116,10 @@ const CFG = {
   RING_T: 0.45,        // position along proximal phalanx (0=knuckle,1=joint)
   RING_RADIUS_K: 0.30, // ring size relative to phalanx length (procedural fallback)
   RING_TUBE: 0.16,     // band thickness (relative to ring radius)
-  MODEL_OUTER_K: 0.60, // real-model outer diameter relative to phalanx length
+  MODEL_OUTER_K: 0.92, // real-model outer diameter relative to phalanx length
   MODEL_ROLL: 0,       // spin (radians) around finger axis to bring the gem on top
   MODEL_RX: 0, MODEL_RY: 0, MODEL_RZ: 0, // extra model pre-rotation (degrees) if mis-aligned
+  OCCLUDE: false,      // finger occlusion (was hiding the whole ring — off for now)
   OCC_RING_K: 0.27,    // finger radius (occluder) relative to phalanx length
   SMOOTH: 0.30,        // tracking smoothing (lower = smoother but laggier)
   WATCH_RADIUS_K: 0.62,// watch size relative to hand breadth
@@ -321,12 +322,14 @@ function placeRing(lm){
   else { smB.lerp(baseT,CFG.SMOOTH); smD.lerp(dirT,CFG.SMOOTH).normalize(); smP+=(phT-smP)*CFG.SMOOTH; }
   const base=smB, dir=smD, phalanx=smP;
   // finger occluder: a cylinder down the whole ring finger (knuckle → tip)
-  const fa=v3(lm[13]).sub(dir.clone().multiplyScalar(phalanx*0.2));
-  const ftip=v3(lm[16]);
-  ringOcc.position.copy(fa.clone().lerp(ftip,0.5));
-  ringOcc.scale.set(phalanx*CFG.OCC_RING_K, fa.distanceTo(ftip), phalanx*CFG.OCC_RING_K);
-  ringOcc.quaternion.setFromUnitVectors(YAX, ftip.clone().sub(fa).normalize());
-  ringOcc.visible=true;
+  if(CFG.OCCLUDE){
+    const fa=v3(lm[13]).sub(dir.clone().multiplyScalar(phalanx*0.2));
+    const ftip=v3(lm[16]);
+    ringOcc.position.copy(fa.clone().lerp(ftip,0.5));
+    ringOcc.scale.set(phalanx*CFG.OCC_RING_K, fa.distanceTo(ftip), phalanx*CFG.OCC_RING_K);
+    ringOcc.quaternion.setFromUnitVectors(YAX, ftip.clone().sub(fa).normalize());
+    ringOcc.visible=true;
+  }
 
   // camera-facing "up" perpendicular to the finger (gem points this way)
   const up=CAM.clone().sub(dir.clone().multiplyScalar(CAM.dot(dir)));
