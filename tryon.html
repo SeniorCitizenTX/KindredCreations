@@ -108,9 +108,10 @@ import { HandLandmarker, FilesetResolver }
 
 /* ---------- tunables (adjust to taste) ---------- */
 const CFG = {
-  RING_T: 0.42,        // position along proximal phalanx (0=knuckle,1=joint)
-  RING_RADIUS_K: 0.36, // ring size relative to phalanx length
-  RING_TUBE: 0.20,     // band thickness (relative to ring radius)
+  RING_T: 0.45,        // position along proximal phalanx (0=knuckle,1=joint)
+  RING_RADIUS_K: 0.30, // ring size relative to phalanx length
+  RING_TUBE: 0.16,     // band thickness (relative to ring radius)
+  OCC_RING_K: 0.26,    // finger radius (occluder) relative to phalanx length
   WATCH_RADIUS_K: 0.62,// watch size relative to hand breadth
   Z_SENS: 0.55,        // how strongly depth affects tilt (lower=flatter)
 };
@@ -167,8 +168,18 @@ const watchFace=new THREE.Mesh(new THREE.CylinderGeometry(0.72,0.72,0.34,40), fa
 const watchGlassMat=new THREE.MeshPhysicalMaterial({ color:0xffffff, metalness:0, roughness:0.05,
   transmission:0.9, thickness:0.2, envMapIntensity:1.5, clearcoat:1 });
 const watchGlass=new THREE.Mesh(new THREE.CylinderGeometry(0.72,0.72,0.06,40), watchGlassMat);
-scene.add(ringBand, ringGem, watchBand, watchFace, watchGlass);
-[ringBand,ringGem,watchBand,watchFace,watchGlass].forEach(m=>m.visible=false);
+// invisible occluders: write depth only, so the part of the jewelry behind
+// the finger/wrist is hidden — this is what makes it "wrap" instead of float
+const occMat=new THREE.MeshBasicMaterial({ colorWrite:false });
+const ringOcc=new THREE.Mesh(new THREE.CylinderGeometry(1,1,1,20), occMat);
+const watchOcc=new THREE.Mesh(new THREE.CylinderGeometry(1,1,1,26), occMat);
+ringOcc.renderOrder=-1; watchOcc.renderOrder=-1;
+ringBand.renderOrder=1; ringGem.renderOrder=2;
+watchBand.renderOrder=1; watchFace.renderOrder=1; watchGlass.renderOrder=2;
+scene.add(ringBand, ringGem, watchBand, watchFace, watchGlass, ringOcc, watchOcc);
+const ALL=[ringBand,ringGem,watchBand,watchFace,watchGlass,ringOcc,watchOcc];
+ALL.forEach(m=>m.visible=false);
+const YAX=new THREE.Vector3(0,1,0);
 
 /* ---------- product UI ---------- */
 function applyProduct(){
@@ -226,10 +237,20 @@ function placeRing(lm){
   const mcp=v3(lm[13]), pip=v3(lm[14]);
   const base=mcp.clone().lerp(pip,CFG.RING_T);
   const dir=pip.clone().sub(mcp).normalize();
-  const r=pxDist(lm[13],lm[14])*CFG.RING_RADIUS_K;
+  const phalanx=pxDist(lm[13],lm[14]);
+  const r=phalanx*CFG.RING_RADIUS_K;
   ringBand.position.copy(base); ringBand.scale.setScalar(r);
   ringBand.quaternion.setFromUnitVectors(ZAX, dir);
   ringBand.visible=true;
+  // finger occluder: a cylinder down the whole ring finger (knuckle → tip)
+  const fa=v3(lm[13]).sub(dir.clone().multiplyScalar(phalanx*0.2)); // start just below knuckle
+  const ftip=v3(lm[16]);
+  const fmid=fa.clone().lerp(ftip,0.5);
+  const flen=fa.distanceTo(ftip);
+  const fr=phalanx*CFG.OCC_RING_K;
+  ringOcc.position.copy(fmid); ringOcc.scale.set(fr, flen, fr);
+  ringOcc.quaternion.setFromUnitVectors(YAX, ftip.clone().sub(fa).normalize());
+  ringOcc.visible=true;
   // gem sits on the camera-facing side of the band
   const p=PRODUCTS.ring[sel];
   if(p.gem!==null){
@@ -249,6 +270,10 @@ function placeWatch(lm){
   const pos=wrist.clone().add(axis.clone().multiplyScalar(r*0.15));
   const q=new THREE.Quaternion().setFromUnitVectors(ZAX, axis);
   watchBand.position.copy(pos); watchBand.scale.setScalar(r); watchBand.quaternion.copy(q); watchBand.visible=true;
+  // wrist occluder so the back of the strap is hidden
+  watchOcc.position.copy(wrist).add(axis.clone().multiplyScalar(r*0.4));
+  watchOcc.scale.set(r*0.82, r*1.8, r*0.82);
+  watchOcc.quaternion.setFromUnitVectors(YAX, axis); watchOcc.visible=true;
   // face + glass on the back-of-hand (camera) side
   const up=CAM.clone().sub(axis.clone().multiplyScalar(CAM.dot(axis)));
   if(up.lengthSq()<1e-4) up.set(0,-1,0); up.normalize();
@@ -257,7 +282,7 @@ function placeWatch(lm){
   watchFace.position.copy(pos).add(up.clone().multiplyScalar(r*0.62));
   watchGlass.position.copy(pos).add(up.clone().multiplyScalar(r*0.80));
 }
-function hideAll(){ [ringBand,ringGem,watchBand,watchFace,watchGlass].forEach(m=>m.visible=false); }
+function hideAll(){ ALL.forEach(m=>m.visible=false); }
 
 /* ---------- loop ---------- */
 let lastVT=-1;
