@@ -68,6 +68,23 @@
   #ring::before{ content:''; position:absolute; inset:5px; border-radius:50%; background:var(--bg);
     opacity:.0; } /* spacer mask handled below */
   #ring{ -webkit-mask:radial-gradient(circle, transparent 20px, #000 21px); mask:radial-gradient(circle, transparent 20px, #000 21px); }
+  #ring{ display:none; }                                   /* dwell ring retired */
+  #cursor.pinch::after{ background:var(--gold); box-shadow:0 0 22px var(--gold); inset:18px; }
+
+  /* open-palm back affordance */
+  .back-hint{ margin-top:34px; font-size:16px; letter-spacing:.04em; opacity:.7; transition:opacity .2s; }
+  .back-hint b{ color:var(--gold); }
+  .back-hint.active{ opacity:1; }
+  .back-prog{ margin-top:12px; width:240px; height:6px; border-radius:6px;
+    background:rgba(255,255,255,.12); overflow:hidden; }
+  .back-prog i{ display:block; height:100%; width:0%; background:var(--gold);
+    box-shadow:0 0 12px var(--gold); transition:width .05s linear; }
+
+  /* persistent help strip */
+  #help{ position:absolute; bottom:26px; left:50%; transform:translateX(-50%); z-index:9;
+    font-size:14px; letter-spacing:.14em; opacity:.7; pointer-events:none; transition:opacity .3s;
+    background:rgba(10,10,15,.5); padding:10px 20px; border-radius:30px;
+    border:1px solid rgba(255,255,255,.08); }
 
   /* hint / attract */
   #prompt{ position:absolute; z-index:9; inset:0; display:flex; flex-direction:column; align-items:center;
@@ -118,7 +135,9 @@
       <h2 id="dTitle"></h2>
       <div class="price" id="dPrice"></div>
       <p id="dDesc"></p>
-      <div class="dwell-btn interactive" id="backBtn" data-action="back">← Back to collection</div>
+      <div class="back-hint" id="backHint">✋ &nbsp;Show your <b>open palm</b> to go back
+        <div class="back-prog"><i id="backProg"></i></div>
+      </div>
     </div>
   </div>
 
@@ -128,6 +147,8 @@
     <div class="small">Point to browse · hold to select</div>
   </div>
 
+  <div id="help">👉 Point &nbsp;·&nbsp; 🤏 Pinch to select</div>
+
   <div id="cursor"><div id="ring"></div></div>
 
   <div id="pip"><video id="cam" playsinline muted autoplay></video><canvas id="pcv"></canvas><span class="lbl">tracking</span></div>
@@ -135,7 +156,7 @@
   <div id="start">
     <div class="brand">KIND<b>RED</b></div>
     <h1>Touchless Interactive Display</h1>
-    <p>A gesture-controlled showroom — no touch, no app. Point your hand to browse, hold over an item to select it. Built for retail windows, showrooms &amp; lobbies.</p>
+    <p>A gesture-controlled showroom — no touch, no app. Point your hand to browse, <b>pinch to select</b>, and <b>open your palm to go back</b>. Built for retail windows, showrooms &amp; lobbies.</p>
     <button id="go">Begin Demo</button>
     <div id="boot">// starting hand tracking …</div>
     <div id="err"></div>
@@ -217,16 +238,26 @@ function d2(a,b){ return Math.hypot(a.x-b.x,a.y-b.y); }
 
 /* ---------- interaction state ---------- */
 let cx=innerWidth/2, cy=innerHeight/2;      // smoothed cursor
-let lastTarget=null, dwell=0;
-const DWELL=1.05;                            // seconds to select
 let detailOpen=false;
+let prevPinch=false;                         // pinch rising-edge detector
+let palmHold=0;                              // open-palm "go back" timer
+const PALM_TIME=0.6;                         // seconds of open palm to go back
 
-function activate(el){
-  const action=el.dataset.action;
-  if(action==='open'){ openDetail(+el.dataset.idx); }
-  else if(action==='back'){ closeDetail(); }
+const backHint=document.getElementById('backHint');
+const backProg=document.getElementById('backProg');
+const helpBar=document.getElementById('help');
+
+// an open palm = all four fingers extended away from the wrist
+function isOpenPalm(lm){
+  const w=lm[0];
+  const ext=(tip,pip)=> Math.hypot(lm[tip].x-w.x,lm[tip].y-w.y) > Math.hypot(lm[pip].x-w.x,lm[pip].y-w.y)*1.05;
+  let n=0;
+  if(ext(8,6))n++; if(ext(12,10))n++; if(ext(16,14))n++; if(ext(20,18))n++;
+  return n>=4;
 }
+
 function openDetail(i){
+  palmHold=0; backProg.style.width='0%';
   const it=ITEMS[i];
   document.getElementById('dImg').src=it.img;
   document.getElementById('dTag').textContent=it.tag;
@@ -252,45 +283,49 @@ function loop(now){
 
   if(res && res.landmarks && res.landmarks.length){
     const lm=res.landmarks[0];
+    const ref=d2(lm[0],lm[5])||1;
+    const pinching = d2(lm[4],lm[8])/ref < 0.4;
+    const palm = isOpenPalm(lm);
+
     // cursor follows index fingertip (point to browse)
     const tip=toScreen(lm[8]);
     cx+=(tip.x-cx)*0.35; cy+=(tip.y-cy)*0.35;
     cursor.style.display='block'; cursor.style.left=cx+'px'; cursor.style.top=cy+'px';
+    cursor.classList.toggle('pinch', pinching);
     prompt.classList.add('hidden');
 
-    // pinch = instant select shortcut
-    const ref=d2(lm[0],lm[5])||1;
-    const pinching = d2(lm[4],lm[8])/ref < 0.4;
+    if(detailOpen){
+      // ----- detail page: open palm to go back -----
+      document.querySelectorAll('.hot').forEach(n=>n.classList.remove('hot'));
+      if(palm) palmHold += dt; else palmHold = Math.max(0, palmHold - dt*2);
+      backHint.classList.toggle('active', palmHold>0);
+      backProg.style.width = Math.min(palmHold/PALM_TIME,1)*100 + '%';
+      if(palmHold>=PALM_TIME){ closeDetail(); palmHold=0; backProg.style.width='0%'; }
+    } else {
+      // ----- gallery: point + pinch to select -----
+      const el=document.elementFromPoint(cx,cy);
+      const target = el ? el.closest('.card.interactive') : null;
+      document.querySelectorAll('.hot').forEach(n=>{ if(n!==target) n.classList.remove('hot'); });
+      if(target) target.classList.add('hot');
+      if(pinching && !prevPinch && target){      // pinch rising edge = select
+        openDetail(+target.dataset.idx);
+      }
+    }
+    prevPinch = pinching;
 
-    // hit test (cursor is pointer-events:none so it's ignored)
-    let el=document.elementFromPoint(cx,cy);
-    let target=el?el.closest('.interactive'):null;
-    if(target && detailOpen && target.dataset.action==='open') target=null;   // cards hidden behind detail
-    if(target && !detailOpen && target.dataset.action==='back') target=null;
-
-    // highlight
-    document.querySelectorAll('.hot').forEach(n=>{ if(n!==target) n.classList.remove('hot'); });
-    if(target) target.classList.add('hot');
-
-    if(target){
-      if(target===lastTarget) dwell+=dt; else { dwell=0; lastTarget=target; }
-      if(pinching) dwell=DWELL;                       // pinch fast-selects
-      if(dwell>=DWELL){ activate(target); dwell=0; lastTarget=null;
-        document.querySelectorAll('.hot').forEach(n=>n.classList.remove('hot')); }
-    } else { dwell=0; lastTarget=null; }
-    ring.style.setProperty('--p', (target?Math.min(dwell/DWELL,1):0).toFixed(3));
-
-    // skeleton on PIP
+    // skeleton on PIP (gold = pinch, mint = open palm)
     const pts=lm.map(pipPt);
-    pctx.strokeStyle=pinching?'#d9b46a':'#27e7ff'; pctx.lineWidth=2; pctx.lineCap='round';
+    pctx.strokeStyle = pinching?'#d9b46a' : (palm?'#7fffd4':'#27e7ff'); pctx.lineWidth=2; pctx.lineCap='round';
     for(const [a,b] of HAND_CONN){ pctx.beginPath(); pctx.moveTo(pts[a].x,pts[a].y); pctx.lineTo(pts[b].x,pts[b].y); pctx.stroke(); }
     for(const p of pts){ pctx.beginPath(); pctx.arc(p.x,p.y,2.5,0,7); pctx.fillStyle='#fff'; pctx.fill(); }
   } else {
     cursor.style.display='none';
     document.querySelectorAll('.hot').forEach(n=>n.classList.remove('hot'));
-    dwell=0; lastTarget=null;
+    prevPinch=false; palmHold=0; backProg.style.width='0%';
     if(!detailOpen) prompt.classList.remove('hidden');
   }
+
+  helpBar.style.opacity = detailOpen ? '0' : '0.7';
 }
 
 function sizePip(){ pcv.width=170; pcv.height=128; }
