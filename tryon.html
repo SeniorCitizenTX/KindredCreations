@@ -193,6 +193,18 @@ const draco=new DRACOLoader().setDecoderPath('https://www.gstatic.com/draco/v1/d
 const gltfLoader=new GLTFLoader().setDRACOLoader(draco);
 gltfLoader.load('models/ring.glb', (gltf)=>{
   const wrap=new THREE.Group(); wrap.add(gltf.scene);
+  // this asset is a tray of several pieces — keep only the clean gold band
+  let hasGold=false;
+  gltf.scene.traverse(o=>{ if(o.isMesh){
+    const nm=(Array.isArray(o.material)?o.material[0]:o.material)?.name||'';
+    if(nm==='gold') hasGold=true; }});
+  if(hasGold){
+    const drop=[];
+    gltf.scene.traverse(o=>{ if(o.isMesh){
+      const nm=(Array.isArray(o.material)?o.material[0]:o.material)?.name||'';
+      if(nm!=='gold') drop.push(o); }});
+    drop.forEach(o=>o.parent && o.parent.remove(o));
+  }
   // center on bounding box
   let box=new THREE.Box3().setFromObject(wrap);
   gltf.scene.position.sub(box.getCenter(new THREE.Vector3()));
