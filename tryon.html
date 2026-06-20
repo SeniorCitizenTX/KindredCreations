@@ -14,7 +14,7 @@
   #cam{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; transform:scaleX(-1); }
   canvas { position:absolute; inset:0; width:100%; height:100%; display:block; }
   #gl{ z-index:2; }
-  #dbg{ z-index:3; pointer-events:none; }
+  #ovl{ z-index:3; pointer-events:none; }
 
   header{ position:absolute; top:0; left:0; right:0; z-index:5; padding:22px 28px; pointer-events:none;
     display:flex; justify-content:space-between; align-items:flex-start; }
@@ -66,7 +66,7 @@
 <div id="stage">
   <video id="cam" playsinline muted autoplay></video>
   <canvas id="gl"></canvas>
-  <canvas id="dbg"></canvas>
+  <canvas id="ovl"></canvas>
 
   <header>
     <div><div class="brand">KIND<b>RED</b></div><div class="tag">Virtual Try-On</div></div>
@@ -144,11 +144,11 @@ let mode='ring', sel=0;
 /* ---------- refs ---------- */
 const DEBUG=true;   // diagnostic skeleton overlay (turn off once tuned)
 const video=document.getElementById('cam'), glc=document.getElementById('gl');
-const dbg=document.getElementById('dbg'), dctx=dbg.getContext('2d');
+const ovl=document.getElementById('ovl'), dctx=ovl.getContext('2d');
 let DPR=Math.min(devicePixelRatio||1,2);
 const HAND_CONN=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
   [9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
-function sizeDbg(){ DPR=Math.min(devicePixelRatio||1,2); dbg.width=innerWidth*DPR; dbg.height=innerHeight*DPR; }
+function sizeDbg(){ DPR=Math.min(devicePixelRatio||1,2); ovl.width=innerWidth*DPR; ovl.height=innerHeight*DPR; }
 function drawDebug(lm){
   dctx.save(); dctx.scale(DPR,DPR);
   const P=lm.map(v3); // x,y already in screen px
@@ -385,7 +385,7 @@ function loop(now){
   if(handLandmarker && video.readyState>=2 && video.currentTime!==lastVT){
     lastVT=video.currentTime; res=handLandmarker.detectForVideo(video, now);
   }
-  dctx.clearRect(0,0,dbg.width,dbg.height);
+  dctx.clearRect(0,0,ovl.width,ovl.height);
   if(res && res.landmarks && res.landmarks.length){
     const lm=res.landmarks[0];
     hideAll();
