@@ -12,7 +12,9 @@
     font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif; }
   #stage{ position:fixed; inset:0; }
   #cam{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; transform:scaleX(-1); }
-  #gl{ position:absolute; inset:0; width:100%; height:100%; }
+  canvas { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  #gl{ z-index:2; }
+  #dbg{ z-index:3; pointer-events:none; }
 
   header{ position:absolute; top:0; left:0; right:0; z-index:5; padding:22px 28px; pointer-events:none;
     display:flex; justify-content:space-between; align-items:flex-start; }
@@ -64,6 +66,7 @@
 <div id="stage">
   <video id="cam" playsinline muted autoplay></video>
   <canvas id="gl"></canvas>
+  <canvas id="dbg"></canvas>
 
   <header>
     <div><div class="brand">KIND<b>RED</b></div><div class="tag">Virtual Try-On</div></div>
@@ -139,7 +142,33 @@ const PRODUCTS = {
 let mode='ring', sel=0;
 
 /* ---------- refs ---------- */
+const DEBUG=true;   // diagnostic skeleton overlay (turn off once tuned)
 const video=document.getElementById('cam'), glc=document.getElementById('gl');
+const dbg=document.getElementById('dbg'), dctx=dbg.getContext('2d');
+let DPR=Math.min(devicePixelRatio||1,2);
+const HAND_CONN=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
+  [9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+function sizeDbg(){ DPR=Math.min(devicePixelRatio||1,2); dbg.width=innerWidth*DPR; dbg.height=innerHeight*DPR; }
+function drawDebug(lm){
+  dctx.save(); dctx.scale(DPR,DPR);
+  const P=lm.map(v3); // x,y already in screen px
+  dctx.strokeStyle='rgba(0,255,200,.7)'; dctx.lineWidth=2;
+  for(const [a,b] of HAND_CONN){ dctx.beginPath(); dctx.moveTo(P[a].x,P[a].y); dctx.lineTo(P[b].x,P[b].y); dctx.stroke(); }
+  for(let i=0;i<P.length;i++){ dctx.beginPath(); dctx.arc(P[i].x,P[i].y,3,0,7); dctx.fillStyle='#fff'; dctx.fill();
+    dctx.fillStyle='rgba(255,255,255,.8)'; dctx.font='10px monospace'; dctx.fillText(i,P[i].x+4,P[i].y-4); }
+  // ring-finger anchors: 13 green, 14 blue
+  dctx.beginPath(); dctx.arc(P[13].x,P[13].y,7,0,7); dctx.fillStyle='#3f6'; dctx.fill();
+  dctx.beginPath(); dctx.arc(P[14].x,P[14].y,7,0,7); dctx.fillStyle='#39f'; dctx.fill();
+  // where/how big the ring is being placed
+  if(smOn){
+    const r=smP*CFG.MODEL_OUTER_K*0.5;
+    dctx.strokeStyle='#f0f'; dctx.lineWidth=3;
+    dctx.beginPath(); dctx.arc(smB.x,smB.y,r,0,7); dctx.stroke();
+    dctx.beginPath(); dctx.moveTo(smB.x,smB.y);
+    dctx.lineTo(smB.x+smD.x*r*1.6, smB.y+smD.y*r*1.6); dctx.stroke();
+  }
+  dctx.restore();
+}
 const promptEl=document.getElementById('prompt'), promptSub=document.getElementById('promptSub');
 const chipsEl=document.getElementById('chips');
 const startEl=document.getElementById('start'), goBtn=document.getElementById('go');
@@ -356,17 +385,19 @@ function loop(now){
   if(handLandmarker && video.readyState>=2 && video.currentTime!==lastVT){
     lastVT=video.currentTime; res=handLandmarker.detectForVideo(video, now);
   }
+  dctx.clearRect(0,0,dbg.width,dbg.height);
   if(res && res.landmarks && res.landmarks.length){
     const lm=res.landmarks[0];
     hideAll();
     if(mode==='ring') placeRing(lm); else placeWatch(lm);
+    if(DEBUG) drawDebug(lm);
     promptEl.classList.add('hidden');
   } else { hideAll(); smOn=false; promptEl.classList.remove('hidden'); }
   renderer.render(scene,camera);
 }
 
 /* ---------- resize / boot ---------- */
-function resize(){ const W=innerWidth,H=innerHeight; renderer.setSize(W,H,false); makeCamera(); }
+function resize(){ const W=innerWidth,H=innerHeight; renderer.setSize(W,H,false); makeCamera(); sizeDbg(); }
 addEventListener('resize', resize);
 
 goBtn.addEventListener('click', async ()=>{
