@@ -103,15 +103,19 @@
 <script type="module">
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { HandLandmarker, FilesetResolver }
   from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
 
 /* ---------- tunables (adjust to taste) ---------- */
 const CFG = {
   RING_T: 0.45,        // position along proximal phalanx (0=knuckle,1=joint)
-  RING_RADIUS_K: 0.30, // ring size relative to phalanx length
+  RING_RADIUS_K: 0.30, // ring size relative to phalanx length (procedural fallback)
   RING_TUBE: 0.16,     // band thickness (relative to ring radius)
-  OCC_RING_K: 0.26,    // finger radius (occluder) relative to phalanx length
+  MODEL_OUTER_K: 0.66, // real-model outer diameter relative to phalanx length
+  MODEL_ROLL: 0,       // spin (radians) around finger axis to bring the gem on top
+  OCC_RING_K: 0.24,    // finger radius (occluder) relative to phalanx length
   WATCH_RADIUS_K: 0.62,// watch size relative to hand breadth
   Z_SENS: 0.55,        // how strongly depth affects tilt (lower=flatter)
 };
@@ -181,12 +185,43 @@ const ALL=[ringBand,ringGem,watchBand,watchFace,watchGlass,ringOcc,watchOcc];
 ALL.forEach(m=>m.visible=false);
 const YAX=new THREE.Vector3(0,1,0);
 
+/* ---------- real ring model (Draco-compressed glTF) ---------- */
+let ringGroup=null, ringMaterials=[], modelOuter=1, modelReady=false;
+const draco=new DRACOLoader().setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
+const gltfLoader=new GLTFLoader().setDRACOLoader(draco);
+gltfLoader.load('models/ring.glb', (gltf)=>{
+  const wrap=new THREE.Group(); wrap.add(gltf.scene);
+  // center on bounding box
+  let box=new THREE.Box3().setFromObject(wrap);
+  gltf.scene.position.sub(box.getCenter(new THREE.Vector3()));
+  // hole axis = thinnest dimension → align it to +Z
+  box=new THREE.Box3().setFromObject(wrap);
+  const s=box.getSize(new THREE.Vector3());
+  const axis=[['x',s.x],['y',s.y],['z',s.z]].sort((a,b)=>a[1]-b[1])[0][0];
+  wrap.quaternion.setFromUnitVectors(
+    new THREE.Vector3(axis==='x'?1:0, axis==='y'?1:0, axis==='z'?1:0),
+    new THREE.Vector3(0,0,1));
+  wrap.updateMatrixWorld(true);
+  const b2=new THREE.Box3().setFromObject(wrap), s2=b2.getSize(new THREE.Vector3());
+  modelOuter=Math.max(s2.x,s2.y)||1;
+  // collect metal materials so the picker can re-tint them
+  gltf.scene.traverse(o=>{ if(o.isMesh && o.material){
+    (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{
+      m.envMapIntensity=1.25;
+      if(m.metalness!==undefined && m.metalness>0.4) ringMaterials.push(m);
+    });
+  }});
+  ringGroup=new THREE.Group(); ringGroup.add(wrap); ringGroup.renderOrder=1; ringGroup.visible=false;
+  scene.add(ringGroup); modelReady=true; applyProduct();
+}, undefined, (e)=>console.warn('ring model failed to load — using procedural fallback', e));
+
 /* ---------- product UI ---------- */
 function applyProduct(){
   const p=PRODUCTS[mode][sel];
-  if(mode==='ring'){ metalMat.color.setHex(p.metal); metalMat.roughness=p.rough;
-    gemMat.color.setHex(p.gem||0xffffff); }
-  else{ watchMat.color.setHex(p.metal); watchMat.roughness=p.rough; faceMat.color.setHex(p.face); }
+  if(mode==='ring'){
+    if(ringMaterials.length){ ringMaterials.forEach(m=>{ m.color.setHex(p.metal); m.roughness=Math.max(p.rough,0.08); }); }
+    metalMat.color.setHex(p.metal); metalMat.roughness=p.rough; gemMat.color.setHex(p.gem||0xffffff);
+  } else { watchMat.color.setHex(p.metal); watchMat.roughness=p.rough; faceMat.color.setHex(p.face); }
 }
 function renderChips(){
   chipsEl.innerHTML='';
@@ -238,28 +273,37 @@ function placeRing(lm){
   const base=mcp.clone().lerp(pip,CFG.RING_T);
   const dir=pip.clone().sub(mcp).normalize();
   const phalanx=pxDist(lm[13],lm[14]);
-  const r=phalanx*CFG.RING_RADIUS_K;
-  ringBand.position.copy(base); ringBand.scale.setScalar(r);
-  ringBand.quaternion.setFromUnitVectors(ZAX, dir);
-  ringBand.visible=true;
   // finger occluder: a cylinder down the whole ring finger (knuckle → tip)
-  const fa=v3(lm[13]).sub(dir.clone().multiplyScalar(phalanx*0.2)); // start just below knuckle
+  const fa=v3(lm[13]).sub(dir.clone().multiplyScalar(phalanx*0.2));
   const ftip=v3(lm[16]);
-  const fmid=fa.clone().lerp(ftip,0.5);
-  const flen=fa.distanceTo(ftip);
-  const fr=phalanx*CFG.OCC_RING_K;
-  ringOcc.position.copy(fmid); ringOcc.scale.set(fr, flen, fr);
+  ringOcc.position.copy(fa.clone().lerp(ftip,0.5));
+  ringOcc.scale.set(phalanx*CFG.OCC_RING_K, fa.distanceTo(ftip), phalanx*CFG.OCC_RING_K);
   ringOcc.quaternion.setFromUnitVectors(YAX, ftip.clone().sub(fa).normalize());
   ringOcc.visible=true;
-  // gem sits on the camera-facing side of the band
+
+  // camera-facing "up" perpendicular to the finger (gem points this way)
+  const up=CAM.clone().sub(dir.clone().multiplyScalar(CAM.dot(dir)));
+  if(up.lengthSq()<1e-4) up.set(0,-1,0); up.normalize();
+
+  if(modelReady && ringGroup){
+    // ---- real 3D model ----
+    ringGroup.position.copy(base);
+    ringGroup.scale.setScalar(phalanx*CFG.MODEL_OUTER_K/modelOuter);
+    const x=new THREE.Vector3().crossVectors(up,dir).normalize();
+    const y=new THREE.Vector3().crossVectors(dir,x).normalize();
+    const q=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x,y,dir));
+    if(CFG.MODEL_ROLL) q.multiply(new THREE.Quaternion().setFromAxisAngle(ZAX, CFG.MODEL_ROLL));
+    ringGroup.quaternion.copy(q); ringGroup.visible=true;
+    return;
+  }
+  // ---- procedural fallback ----
+  const r=phalanx*CFG.RING_RADIUS_K;
+  ringBand.position.copy(base); ringBand.scale.setScalar(r);
+  ringBand.quaternion.setFromUnitVectors(ZAX, dir); ringBand.visible=true;
   const p=PRODUCTS.ring[sel];
   if(p.gem!==null){
-    const up=CAM.clone().sub(dir.clone().multiplyScalar(CAM.dot(dir)));
-    if(up.lengthSq()<1e-4) up.set(0,-1,0); up.normalize();
-    ringGem.position.copy(base).add(up.multiplyScalar(r*1.05));
-    ringGem.scale.setScalar(r*0.95);
-    ringGem.rotation.y+=0.04; ringGem.rotation.x=0.4;
-    ringGem.visible=true;
+    ringGem.position.copy(base).add(up.clone().multiplyScalar(r*1.05));
+    ringGem.scale.setScalar(r*0.95); ringGem.rotation.y+=0.04; ringGem.rotation.x=0.4; ringGem.visible=true;
   } else ringGem.visible=false;
 }
 function placeWatch(lm){
@@ -282,7 +326,7 @@ function placeWatch(lm){
   watchFace.position.copy(pos).add(up.clone().multiplyScalar(r*0.62));
   watchGlass.position.copy(pos).add(up.clone().multiplyScalar(r*0.80));
 }
-function hideAll(){ ALL.forEach(m=>m.visible=false); }
+function hideAll(){ ALL.forEach(m=>m.visible=false); if(ringGroup) ringGroup.visible=false; }
 
 /* ---------- loop ---------- */
 let lastVT=-1;
