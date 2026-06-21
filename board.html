@@ -88,7 +88,7 @@
   <div class="cursor" id="c1"></div>
 
   <div id="mode"></div>
-  <div id="hint">🤏 index = drag &nbsp;·&nbsp; 🤏 middle, move up/down = zoom</div>
+  <div id="hint">🤏 pinch = drag &nbsp;·&nbsp; ✊ fist, move up/down = zoom</div>
 
   <div id="pip"><video id="cam" playsinline muted autoplay></video><canvas id="pcv"></canvas></div>
 
@@ -104,7 +104,7 @@
     <div class="brand">KIND<b>RED</b></div>
     <h1>Gesture Reference Board</h1>
     <p>Pan and zoom your reference art in the air — no touching the screen with inky, gloved hands.</p>
-    <div class="g">🤏 pinch <b>thumb + index</b>, move to drag<br>🤏 pinch <b>thumb + middle</b>, move up/down to zoom<br>tap “Load” to use your own reference</div>
+    <div class="g">🤏 pinch <b>thumb + index</b>, move to drag<br>✊ make a <b>fist</b>, move up/down to zoom<br>tap “Load” to use your own reference</div>
     <button id="go">Start</button>
     <div id="boot">// starting hand tracking …</div>
     <div id="err"></div>
@@ -164,6 +164,9 @@ async function initCamera(){
 }
 function screen(lm){ const W=innerWidth,H=innerHeight,sc=Math.max(W/vw,H/vh);
   const ox=(W-vw*sc)/2, oy=(H-vh*sc)/2; return { x:(1-lm.x)*vw*sc+ox, y:lm.y*vh*sc+oy }; }
+function extCount(h){ const w=h[0];
+  const ext=(t,p)=>Math.hypot(h[t].x-w.x,h[t].y-w.y) > Math.hypot(h[p].x-w.x,h[p].y-w.y)*1.05;
+  let n=0; if(ext(8,6))n++; if(ext(12,10))n++; if(ext(16,14))n++; if(ext(20,18))n++; return n; }
 function pip(lm){ return { x:(1-lm.x)*pcv.width, y:lm.y*pcv.height }; }
 function dist(a,b){ return Math.hypot(a.x-b.x,a.y-b.y); }
 
@@ -182,12 +185,12 @@ function loop(now){
 
   if(hand){
     const ref=dist(hand[0],hand[5])||1;
-    const dI=dist(hand[4],hand[8])/ref;     // thumb↔index
-    const dM=dist(hand[4],hand[12])/ref;    // thumb↔middle
-    if(dI<0.45 && dI<=dM) mode='pan';
-    else if(dM<0.45 && dM<dI) mode='zoom';
-    const aLm = mode==='zoom' ? {x:(hand[4].x+hand[12].x)/2, y:(hand[4].y+hand[12].y)/2}
-                              : {x:(hand[4].x+hand[8].x)/2,  y:(hand[4].y+hand[8].y)/2};
+    const dI=dist(hand[4],hand[8])/ref;     // thumb↔index pinch
+    const ext=extCount(hand);               // extended fingers (0=fist)
+    if(dI<0.38) mode='pan';                  // fingertip pinch
+    else if(ext<=1 && dI>0.45) mode='zoom';  // closed fist
+    const aLm = mode==='zoom' ? hand[9]                                   // palm centre
+                              : {x:(hand[4].x+hand[8].x)/2, y:(hand[4].y+hand[8].y)/2};
     const raw=screen(aLm);
     if(!sm) sm={...raw}; else { sm.x+=(raw.x-sm.x)*0.5; sm.y+=(raw.y-sm.y)*0.5; }
     pt={x:sm.x,y:sm.y};
@@ -203,10 +206,11 @@ function loop(now){
     if(!g || g.mode!=='pan'){ g={mode:'pan', p:{...pt}}; }
     else { tx+=pt.x-g.p.x; ty+=pt.y-g.p.y; g.p={...pt}; }
   } else if(mode==='zoom'){
-    if(!g || g.mode!=='zoom'){ g={mode:'zoom', anchor:{...pt}, py:pt.y}; }
-    else { const dy=pt.y-g.py; let k=Math.exp(-dy*0.0075);
+    if(!g || g.mode!=='zoom'){ g={mode:'zoom', py:pt.y}; }
+    else { const dy=pt.y-g.py; let k=Math.exp(-dy*0.006);
+      const cx=innerWidth/2, cy=innerHeight/2;
       const ns=Math.max(0.05,Math.min(25,s*k)); k=ns/s; s=ns;
-      tx=g.anchor.x+k*(tx-g.anchor.x); ty=g.anchor.y+k*(ty-g.anchor.y); g.py=pt.y; }
+      tx=cx+k*(tx-cx); ty=cy+k*(ty-cy); g.py=pt.y; }
   } else { g=null; }
 
   hint.style.opacity = hand ? '0.25' : '0.8';
