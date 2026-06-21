@@ -52,6 +52,8 @@
   #mode{ position:absolute; z-index:7; top:54px; left:50%; transform:translateX(-50%); font-size:14px;
     letter-spacing:.3em; font-weight:700; color:var(--accent); opacity:0; transition:opacity .12s;
     text-shadow:0 1px 8px #000; pointer-events:none; }
+  #diag{ position:absolute; z-index:9; top:84px; left:16px; font:12px/1.5 monospace; color:#9fe;
+    background:rgba(0,0,0,.45); padding:5px 9px; border-radius:8px; pointer-events:none; white-space:pre; }
 
   /* camera PIP */
   #pip{ position:absolute; top:64px; right:16px; z-index:7; width:150px; height:112px; border-radius:12px;
@@ -88,6 +90,7 @@
   <div class="cursor" id="c1"></div>
 
   <div id="mode"></div>
+  <div id="diag">…</div>
   <div id="hint">🤏 pinch = drag &nbsp;·&nbsp; ✊ fist, move closer/away = zoom</div>
 
   <div id="pip"><video id="cam" playsinline muted autoplay></video><canvas id="pcv"></canvas></div>
@@ -121,6 +124,7 @@ const zoomEl=document.getElementById('zoom'), hint=document.getElementById('hint
 const cursors=[document.getElementById('c0'),document.getElementById('c1')];
 const fileIn=document.getElementById('file'), resetBtn=document.getElementById('reset');
 const zinBtn=document.getElementById('zin'), zoutBtn=document.getElementById('zout'), modeEl=document.getElementById('mode');
+const diagEl=document.getElementById('diag');
 const startEl=document.getElementById('start'), goBtn=document.getElementById('go'), bootEl=document.getElementById('boot'), errEl=document.getElementById('err');
 
 const HAND_CONN=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
@@ -203,7 +207,8 @@ function loop(now){
     const P=hand.map(pip);
     pctx.strokeStyle=mode?'#fff':'#27e7ff'; pctx.lineWidth=2; pctx.lineCap='round';
     for(const [a,b] of HAND_CONN){ pctx.beginPath(); pctx.moveTo(P[a].x,P[a].y); pctx.lineTo(P[b].x,P[b].y); pctx.stroke(); }
-  } else { cursors[0].style.display='none'; sm=null; panOn=false; }
+    diagEl.textContent=`pinch dI=${dI.toFixed(2)}  ext=${ext}  ${panOn?'PAN':(mode==='zoom'?'ZOOM':'idle')}`;
+  } else { cursors[0].style.display='none'; sm=null; panOn=false; diagEl.textContent='no hand'; }
   cursors[1].style.display='none';
 
   if(mode==='pan'){
