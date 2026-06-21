@@ -88,7 +88,7 @@
   <div class="cursor" id="c1"></div>
 
   <div id="mode"></div>
-  <div id="hint">🤏 pinch = drag &nbsp;·&nbsp; ✊ fist, move up/down = zoom</div>
+  <div id="hint">🤏 pinch = drag &nbsp;·&nbsp; ✊ fist, move closer/away = zoom</div>
 
   <div id="pip"><video id="cam" playsinline muted autoplay></video><canvas id="pcv"></canvas></div>
 
@@ -104,7 +104,7 @@
     <div class="brand">KIND<b>RED</b></div>
     <h1>Gesture Reference Board</h1>
     <p>Pan and zoom your reference art in the air — no touching the screen with inky, gloved hands.</p>
-    <div class="g">🤏 pinch <b>thumb + index</b>, move to drag<br>✊ make a <b>fist</b>, move up/down to zoom<br>tap “Load” to use your own reference</div>
+    <div class="g">🤏 pinch <b>thumb + index</b>, move to drag<br>✊ make a <b>fist</b>, move it <b>closer to zoom in</b>, away to zoom out<br>tap “Load” to use your own reference</div>
     <button id="go">Start</button>
     <div id="boot">// starting hand tracking …</div>
     <div id="err"></div>
@@ -206,11 +206,15 @@ function loop(now){
     if(!g || g.mode!=='pan'){ g={mode:'pan', p:{...pt}}; }
     else { tx+=pt.x-g.p.x; ty+=pt.y-g.p.y; g.p={...pt}; }
   } else if(mode==='zoom'){
-    if(!g || g.mode!=='zoom'){ g={mode:'zoom', py:pt.y}; }
-    else { const dy=pt.y-g.py; let k=Math.exp(-dy*0.006);
+    // hand size in frame = proxy for distance: closer (bigger) = zoom in
+    const sz=dist(hand[0],hand[9]);
+    if(!g || g.mode!=='zoom'){ g={mode:'zoom', startSize:sz||1, startScale:s, sm:sz}; }
+    else {
+      g.sm += (sz-g.sm)*0.4;                                   // smooth
+      const newS=Math.max(0.05,Math.min(25, g.startScale*Math.pow(g.sm/g.startSize, 2.6)));
       const cx=innerWidth/2, cy=innerHeight/2;
-      const ns=Math.max(0.05,Math.min(25,s*k)); k=ns/s; s=ns;
-      tx=cx+k*(tx-cx); ty=cy+k*(ty-cy); g.py=pt.y; }
+      const k=newS/s; s=newS; tx=cx+k*(tx-cx); ty=cy+k*(ty-cy);
+    }
   } else { g=null; }
 
   hint.style.opacity = hand ? '0.25' : '0.8';
