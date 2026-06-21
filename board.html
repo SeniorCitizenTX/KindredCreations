@@ -192,12 +192,9 @@ function loop(now){
     const ref=dist(hand[0],hand[5])||1;
     const dI=dist(hand[4],hand[8])/ref;     // thumb↔index distance
     const ext=extCount(hand);               // extended fingers (0=fist)
-    // a TRUE pinch curls the index down to the thumb; an open hand keeps it extended
-    const idxExt = Math.hypot(hand[8].x-hand[0].x,hand[8].y-hand[0].y)
-                 > Math.hypot(hand[6].x-hand[0].x,hand[6].y-hand[0].y)*1.05;
-    // pan only when the index is curled (rejects open hands), with release hysteresis
-    if(panOn){ if(idxExt || dI>0.45) panOn=false; }
-    else if(!idxExt && dI<0.40) panOn=true;
+    // pinch = thumb tip meets index tip (calibrated: open ≈0.31, firm pinch ≈0.10)
+    if(panOn){ if(dI>0.27) panOn=false; }
+    else if(dI<0.17) panOn=true;
     if(panOn) mode='pan';
     else if(ext<=1 && dI>0.5) mode='zoom';   // closed fist
     // track the PALM so opening the fingers to release doesn't drag the art
@@ -210,7 +207,7 @@ function loop(now){
     const P=hand.map(pip);
     pctx.strokeStyle=mode?'#fff':'#27e7ff'; pctx.lineWidth=2; pctx.lineCap='round';
     for(const [a,b] of HAND_CONN){ pctx.beginPath(); pctx.moveTo(P[a].x,P[a].y); pctx.lineTo(P[b].x,P[b].y); pctx.stroke(); }
-    diagEl.textContent=`dI=${dI.toFixed(2)} idx=${idxExt?'ext':'curl'} ext=${ext}  ${panOn?'PAN':(mode==='zoom'?'ZOOM':'idle')}`;
+    diagEl.textContent=`dI=${dI.toFixed(2)}  ${panOn?'PAN':(mode==='zoom'?'ZOOM':'idle')}`;
   } else { cursors[0].style.display='none'; sm=null; panOn=false; diagEl.textContent='no hand'; }
   cursors[1].style.display='none';
 
