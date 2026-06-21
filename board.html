@@ -172,7 +172,8 @@ function dist(a,b){ return Math.hypot(a.x-b.x,a.y-b.y); }
 
 /* ---------- gesture state (single hand) ---------- */
 let g=null;        // {mode:'pan'|'zoom', ...}
-let sm=null;       // smoothed pinch point
+let sm=null;       // smoothed palm point
+let panOn=false;   // pinch engaged (hysteresis)
 
 function loop(now){
   requestAnimationFrame(loop);
@@ -185,21 +186,24 @@ function loop(now){
 
   if(hand){
     const ref=dist(hand[0],hand[5])||1;
-    const dI=dist(hand[4],hand[8])/ref;     // thumb↔index pinch
+    const dI=dist(hand[4],hand[8])/ref;     // thumb↔index pinch distance
     const ext=extCount(hand);               // extended fingers (0=fist)
-    if(dI<0.38) mode='pan';                  // fingertip pinch
-    else if(ext<=1 && dI>0.45) mode='zoom';  // closed fist
-    const aLm = mode==='zoom' ? hand[9]                                   // palm centre
-                              : {x:(hand[4].x+hand[8].x)/2, y:(hand[4].y+hand[8].y)/2};
-    const raw=screen(aLm);
-    if(!sm) sm={...raw}; else { sm.x+=(raw.x-sm.x)*0.5; sm.y+=(raw.y-sm.y)*0.5; }
+    // pinch hysteresis: close firmly to grab, opening clearly releases
+    if(panOn){ if(dI>0.46) panOn=false; }
+    else if(dI<0.30) panOn=true;
+    if(panOn) mode='pan';
+    else if(ext<=1 && dI>0.5) mode='zoom';   // closed fist
+    // track the PALM so opening the fingers to release doesn't drag the art
+    const raw=screen(hand[9]);
+    if(!sm) sm={...raw}; else { sm.x+=(raw.x-sm.x)*0.6; sm.y+=(raw.y-sm.y)*0.6; }
     pt={x:sm.x,y:sm.y};
-    cursors[0].style.display='block'; cursors[0].style.left=pt.x+'px'; cursors[0].style.top=pt.y+'px';
+    const cp=screen({x:(hand[4].x+hand[8].x)/2, y:(hand[4].y+hand[8].y)/2});
+    cursors[0].style.display='block'; cursors[0].style.left=cp.x+'px'; cursors[0].style.top=cp.y+'px';
     cursors[0].classList.toggle('pinch', !!mode);
     const P=hand.map(pip);
     pctx.strokeStyle=mode?'#fff':'#27e7ff'; pctx.lineWidth=2; pctx.lineCap='round';
     for(const [a,b] of HAND_CONN){ pctx.beginPath(); pctx.moveTo(P[a].x,P[a].y); pctx.lineTo(P[b].x,P[b].y); pctx.stroke(); }
-  } else { cursors[0].style.display='none'; sm=null; }
+  } else { cursors[0].style.display='none'; sm=null; panOn=false; }
   cursors[1].style.display='none';
 
   if(mode==='pan'){
